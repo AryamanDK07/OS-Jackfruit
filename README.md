@@ -1,111 +1,173 @@
 # Multi-Container Runtime
 
-A lightweight Linux container runtime in C with a long-running supervisor and a kernel-space memory monitor.
-
-Read [`project-guide.md`](project-guide.md) for the full project specification.
+A lightweight Linux container runtime in C featuring a long-running supervisor daemon, a bounded-buffer logging pipeline, a UNIX-socket CLI, and a kernel-space memory monitor.
 
 ---
 
-## Getting Started
+## 1. Team Information
 
-### 1. Fork the Repository
+| Name | SRN |
+|------|-----|
+| Adarsha.E | PES1UG24AM334 |
+| Abdul Mateen Shaikh | PES1UG24AM332 |
 
-1. Go to [github.com/shivangjhalani/OS-Jackfruit](https://github.com/shivangjhalani/OS-Jackfruit)
-2. Click **Fork** (top-right)
-3. Clone your fork:
+---
 
-```bash
-git clone https://github.com/<your-username>/OS-Jackfruit.git
-cd OS-Jackfruit
-```
+## 2. Build, Load, and Run Instructions
 
-### 2. Set Up Your VM
+### Prerequisites
 
-You need an **Ubuntu 22.04 or 24.04** VM with **Secure Boot OFF**. WSL will not work.
-
-Install dependencies:
+Ubuntu 22.04 or 24.04 in a VM with **Secure Boot OFF**. WSL is not supported.
 
 ```bash
 sudo apt update
 sudo apt install -y build-essential linux-headers-$(uname -r)
 ```
 
-### 3. Run the Environment Check
+Run the environment preflight check:
 
 ```bash
-cd boilerplate
+cd src
 chmod +x environment-check.sh
 sudo ./environment-check.sh
 ```
 
-Fix any issues reported before moving on.
-
-### 4. Prepare the Root Filesystem
+### Prepare the Alpine Root Filesystem
 
 ```bash
 mkdir rootfs-base
 wget https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-3.20.3-x86_64.tar.gz
 tar -xzf alpine-minirootfs-3.20.3-x86_64.tar.gz -C rootfs-base
+```
 
-# Make one writable copy per container you plan to run
+```bash
 cp -a ./rootfs-base ./rootfs-alpha
 cp -a ./rootfs-base ./rootfs-beta
 ```
 
-Do not commit `rootfs-base/` or `rootfs-*` directories to your repository.
+---
 
-### 5. Understand the Boilerplate
-
-The `boilerplate/` folder contains starter files:
-
-| File                   | Purpose                                             |
-| ---------------------- | --------------------------------------------------- |
-| `engine.c`             | User-space runtime and supervisor skeleton          |
-| `monitor.c`            | Kernel module skeleton                              |
-| `monitor_ioctl.h`      | Shared ioctl command definitions                    |
-| `Makefile`             | Build targets for both user-space and kernel module |
-| `cpu_hog.c`            | CPU-bound test workload                             |
-| `io_pulse.c`           | I/O-bound test workload                             |
-| `memory_hog.c`         | Memory-consuming test workload                      |
-| `environment-check.sh` | VM environment preflight check                      |
-
-Use these as your starting point. You are free to restructure the repository however you want — the submission requirements are listed in the project guide.
-
-### 6. Build and Verify
+### Build
 
 ```bash
-cd boilerplate
+cd src
 make
 ```
 
-If this compiles without errors, your environment is ready.
+---
 
-### 7. GitHub Actions Smoke Check
-
-Your fork will inherit a minimal GitHub Actions workflow from this repository.
-
-That workflow only performs CI-safe checks:
-
-- `make -C boilerplate ci`
-- user-space binary compilation (`engine`, `memory_hog`, `cpu_hog`, `io_pulse`)
-- `./boilerplate/engine` with no arguments must print usage and exit with a non-zero status
-
-The CI-safe build command is:
+### Load Kernel Module
 
 ```bash
-make -C boilerplate ci
+sudo insmod src/monitor.ko
+ls -l /dev/container_monitor
 ```
-
-This smoke check does not test kernel-module loading, supervisor runtime behavior, or container execution.
 
 ---
 
-## What to Do Next
+### Start Supervisor
 
-Read [`project-guide.md`](project-guide.md) end to end. It contains:
+```bash
+sudo ./src/engine supervisor ./rootfs-base
+```
 
-- The six implementation tasks (multi-container runtime, CLI, logging, kernel monitor, scheduling experiments, cleanup)
-- The engineering analysis you must write
-- The exact submission requirements, including what your `README.md` must contain (screenshots, analysis, design decisions)
+---
 
-Your fork's `README.md` should be replaced with your own project documentation as described in the submission package section of the project guide. (As in get rid of all the above content and replace with your README.md)
+### CLI Usage
+
+```bash
+sudo ./src/engine start alpha ./rootfs-alpha /bin/sh --soft-mib 48 --hard-mib 80
+sudo ./src/engine ps
+sudo ./src/engine logs alpha
+sudo ./src/engine stop alpha
+```
+
+---
+
+## 3. Demo with Screenshots
+
+### Screenshot 1 — Multi-Container Supervision
+![s1](screenshots/1.png)
+
+---
+
+### Screenshot 2 — Metadata Tracking (`ps`)
+![s2](screenshots/2.png)
+
+---
+
+### Screenshot 3 — Bounded-Buffer Logging
+![s3](screenshots/3.png)
+![s3](screenshots/4.png)
+
+---
+
+### Screenshot 4 — CLI and IPC
+![s4](screenshots/5.png)
+
+---
+
+### Screenshot 5 — Soft-Limit Warning
+![s5](screenshots/6.png)
+![s5](screenshots/7.png)
+
+---
+
+### Screenshot 6 — Hard-Limit Enforcement
+![s6](screenshots/8.png)
+
+---
+
+### Screenshot 7 — Scheduling Experiment
+![s7](screenshots/9.png)
+![s7](screenshots/10.png)
+
+---
+
+### Screenshot 8 — Clean Teardown
+![s8](screenshots/11.png)
+![s8](screenshots/12.png)
+
+---
+
+## 4. Engineering Analysis
+
+### Isolation
+- Uses `CLONE_NEWPID`, `CLONE_NEWUTS`, `CLONE_NEWNS`
+- Uses `chroot()` for filesystem isolation
+
+### Supervisor
+- Handles lifecycle, logs, IPC
+- Uses `waitpid()` to prevent zombies
+
+### IPC
+- Pipes → logging
+- UNIX socket → control
+
+### Memory Enforcement
+- Soft limit → warning
+- Hard limit → SIGKILL
+
+### Scheduling
+- Demonstrates Linux CFS behavior
+- Multi-core hides priority differences
+
+---
+
+## 5. Design Decisions
+
+- `chroot` over `pivot_root` → simplicity
+- UNIX socket → clean IPC
+- Single consumer logging → avoids race conditions
+- Spinlocks in kernel → required for softirq
+
+---
+
+## 6. Conclusion
+
+- Built a working mini container runtime
+- Demonstrated:
+  - Isolation
+  - Scheduling behavior
+  - Memory enforcement
+- Matches core ideas behind Docker (at a simplified level)
